@@ -36,6 +36,10 @@ int sparse_index_put(SparseIndex* idx, uint64_t offset, uint32_t size, uint64_t 
 int sparse_index_get(SparseIndex* idx, uint64_t offset, IndexEntry* entry);
 int sparse_index_lookup(SparseIndex* idx, uint64_t timestamp, IndexEntry* entry);
 uint64_t sparse_index_get_last_offset(SparseIndex* idx);
+uint64_t sparse_index_get_entry_count(SparseIndex* idx);
+void sparse_index_get_entry_at(SparseIndex* idx, int index, IndexEntry* entry);
+
+int commit_log_cleanup(const char* segment_dir, uint64_t retention_ms, uint64_t retention_bytes);
 
 #ifdef __cplusplus
 }

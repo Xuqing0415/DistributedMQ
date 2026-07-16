@@ -1,0 +1,15 @@
+[Unit]
+Description=DistributedMQ NameServer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mq
+ExecStart=/opt/mq/bin/mq -config /opt/mq/config/nameserver.yaml
+Restart=always
+RestartSec=10
+User=mq
+Group=mq
+
+[Install]
+WantedBy=multi-user.target

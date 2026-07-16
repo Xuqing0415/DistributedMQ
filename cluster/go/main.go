@@ -6,31 +6,43 @@ import (
 	"log"
 
 	"distributedmq/broker"
+	"distributedmq/config"
 	"distributedmq/nameserver"
 )
 
 func main() {
-	role := flag.String("role", "", "nameserver or broker")
-	addr := flag.String("addr", "localhost:8080", "server address")
-	httpPort := flag.Int("http-port", 8080, "HTTP port")
-	nameserverURL := flag.String("nameserver", "http://localhost:9090", "NameServer URL")
-	dataDir := flag.String("data-dir", "./data", "data directory")
-
+	configPath := flag.String("config", "", "Path to config file")
+	generateConfig := flag.Bool("generate-config", false, "Generate example config file")
 	flag.Parse()
 
-	switch *role {
+	if *generateConfig {
+		config.GenerateConfigExample()
+		fmt.Println("Config example generated: config.yaml.example")
+		return
+	}
+
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	fmt.Printf("Loaded config: role=%s, addr=%s, client-addr=%s, nameserver=%s, data-dir=%s\n",
+		cfg.Role, cfg.Addr, cfg.ClientAddr, cfg.NameServer, cfg.DataDir)
+
+	switch cfg.Role {
 	case "nameserver":
-		ns := nameserver.NewNameServer(*addr, *httpPort)
-		fmt.Printf("Starting NameServer on :%d\n", *httpPort)
+		ns := nameserver.NewNameServer(cfg.Addr, cfg.HTTPPort)
+		fmt.Printf("Starting NameServer on :%d\n", cfg.HTTPPort)
 		log.Fatal(ns.Start())
 
 	case "broker":
-		peers := []string{"localhost:8081", "localhost:8082", "localhost:8083"}
-		b := broker.NewBroker(*addr, *nameserverURL, *dataDir, peers)
-		fmt.Printf("Starting Broker on %s\n", *addr)
+		b := broker.NewBroker(cfg.Addr, cfg.ClientAddr, cfg.NameServer, cfg.DataDir)
+		b.SetRetention(cfg.RetentionMs, cfg.RetentionBytes)
+		fmt.Printf("Starting Broker on %s (client: %s)\n", cfg.Addr, cfg.ClientAddr)
 		log.Fatal(b.Start())
 
 	default:
-		fmt.Println("Usage: go run main.go -role nameserver|broker [options]")
+		fmt.Println("Usage: mq -config config.yaml")
+		fmt.Println("Or: mq -role nameserver|broker -addr localhost:8080 -client-addr localhost:9092 -nameserver http://localhost:9090 -data-dir ./data")
 	}
 }

@@ -1,0 +1,4 @@
+role: "nameserver"
+addr: "localhost:9090"
+http_port: 9090
+data_dir: "./data/nameserver"

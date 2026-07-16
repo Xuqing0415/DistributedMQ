@@ -1,0 +1,31 @@
+/var/log/mq/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 mq mq
+    sharedscripts
+    postrotate
+        systemctl reload mq-nameserver > /dev/null 2>&1 || true
+        systemctl reload mq-broker@1 > /dev/null 2>&1 || true
+        systemctl reload mq-broker@2 > /dev/null 2>&1 || true
+        systemctl reload mq-broker@3 > /dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/mq/audit.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 mq mq
+    size 100M
+    sharedscripts
+    postrotate
+        systemctl reload mq-nameserver > /dev/null 2>&1 || true
+    endscript
+}

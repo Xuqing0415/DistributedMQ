@@ -6,6 +6,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <dirent.h>
+#include <time.h>
 
 #include "mq_storage.h"
 
@@ -121,4 +123,47 @@ int commit_log_sync(CommitLog* cl) {
         return MQ_IO_ERROR;
     }
     return MQ_SUCCESS;
+}
+
+int commit_log_cleanup(const char* segment_dir, uint64_t retention_ms, uint64_t retention_bytes) {
+    DIR* dir = opendir(segment_dir);
+    if (!dir) {
+        return MQ_ERROR;
+    }
+
+    struct dirent* entry;
+    uint64_t total_cleaned_bytes = 0;
+    time_t now = time(NULL);
+    uint64_t retention_sec = retention_ms / 1000;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strncmp(entry->d_name, "segment_", 8) != 0) {
+            continue;
+        }
+
+        char filepath[512];
+        snprintf(filepath, sizeof(filepath), "%s/%s", segment_dir, entry->d_name);
+
+        struct stat st;
+        if (stat(filepath, &st) < 0) {
+            continue;
+        }
+
+        if (retention_ms > 0 && (now - st.st_mtime) > (time_t)retention_sec) {
+            if (unlink(filepath) == 0) {
+                total_cleaned_bytes += st.st_size;
+            }
+            continue;
+        }
+
+        if (retention_bytes > 0 && st.st_size > retention_bytes) {
+            if (unlink(filepath) == 0) {
+                total_cleaned_bytes += st.st_size;
+            }
+            continue;
+        }
+    }
+
+    closedir(dir);
+    return (int)(total_cleaned_bytes / (1024 * 1024));
 }

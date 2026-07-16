@@ -156,5 +156,19 @@ int sparse_index_lookup(SparseIndex* idx, uint64_t timestamp, IndexEntry* entry)
 }
 
 uint64_t sparse_index_get_last_offset(SparseIndex* idx) {
-    return idx ? idx->last_offset : 0;
+	return idx ? idx->last_offset : 0;
+}
+
+uint64_t sparse_index_get_entry_count(SparseIndex* idx) {
+	return idx ? idx->entry_count : 0;
+}
+
+void sparse_index_get_entry_at(SparseIndex* idx, int index, IndexEntry* entry) {
+	if (!idx || !entry || index < 0 || (uint64_t)index >= idx->entry_count) {
+		return;
+	}
+	IndexEntry* e = (IndexEntry*)(idx->mmap_addr + index * INDEX_ENTRY_SIZE);
+	entry->offset = e->offset;
+	entry->size = e->size;
+	entry->timestamp = e->timestamp;
 }

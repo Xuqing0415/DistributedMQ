@@ -1,0 +1,8 @@
+role: "broker"
+addr: "localhost:8081"
+client_addr: "localhost:9092"
+http_port: 8081
+nameserver: "http://localhost:9090"
+data_dir: "./data/broker-1"
+retention_ms: 604800000
+retention_bytes: 0

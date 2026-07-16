@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -fPIC
 INCLUDES = -Iinclude
-LIBDIR = lib
+LIBDIR = ../lib
 
 SRCS_COMMITLOG = commitlog/commit_log.c
 SRCS_INDEX = index/sparse_index.c
@@ -9,7 +9,7 @@ SRCS_INDEX = index/sparse_index.c
 OBJS_COMMITLOG = $(SRCS_COMMITLOG:.c=.o)
 OBJS_INDEX = $(SRCS_INDEX:.c=.o)
 
-TARGET = $(LIBDIR)/libmqstorage.a
+TARGET = $(LIBDIR)/libstorage.a
 
 .PHONY: all clean
 

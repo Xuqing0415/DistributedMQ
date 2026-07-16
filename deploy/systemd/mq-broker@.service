@@ -1,0 +1,16 @@
+[Unit]
+Description=DistributedMQ Broker Instance %I
+After=network.target mq-nameserver.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mq
+ExecStart=/opt/mq/bin/mq -config /opt/mq/config/broker-%i.yaml
+Restart=always
+RestartSec=10
+User=mq
+Group=mq
+Environment="LD_LIBRARY_PATH=/opt/mq/lib"
+
+[Install]
+WantedBy=multi-user.target
