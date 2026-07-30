@@ -198,7 +198,7 @@ func (r *RaftNode) startElection() {
 	newConfigVotes := 0
 	var wg sync.WaitGroup
 
-	r.mu.RLock()
+	// NOTE: already holding r.mu.Lock(), no need for RLock
 	configState := r.configState
 	oldConfigCount := len(r.currentConfig)
 	newConfigCount := len(r.newConfig)
@@ -206,7 +206,6 @@ func (r *RaftNode) startElection() {
 	for _, peer := range r.peers {
 		peersCopy = append(peersCopy, peer)
 	}
-	r.mu.RUnlock()
 
 	if len(peersCopy) == 0 {
 		r.becomeLeader()
@@ -280,6 +279,11 @@ func (r *RaftNode) becomeLeader() {
 		r.matchIndex[peerAddr] = 0
 		r.isr[peerAddr] = true
 	}
+	// Clear any pending commits from previous term
+	for n, ch := range r.pendingCommit {
+		close(ch)
+		delete(r.pendingCommit, n)
+	}
 	r.sendHeartbeats()
 	r.resetHeartbeatTimer()
 	r.startISRTicker()
@@ -329,8 +333,8 @@ func (r *RaftNode) checkISR() {
 }
 
 func (r *RaftNode) getISRSize() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	count := 1
 	for _, inISR := range r.isr {
 		if inISR {
@@ -344,6 +348,11 @@ func (r *RaftNode) becomeFollower(term uint64) {
 	r.state = Follower
 	r.currentTerm = term
 	r.votedFor = ""
+	// Clear any pending commits from previous term
+	for n, ch := range r.pendingCommit {
+		close(ch)
+		delete(r.pendingCommit, n)
+	}
 	r.resetElectionTimer()
 	r.saveState()
 }
@@ -767,7 +776,14 @@ func (r *RaftNode) saveState() {
 		return
 	}
 
-	ioutil.WriteFile(fmt.Sprintf("%s/raft_state.dat", r.dataDir), buf.Bytes(), 0644)
+	stateFile := fmt.Sprintf("%s/raft_state.dat", r.dataDir)
+	tmpFile := stateFile + ".tmp"
+	if err := ioutil.WriteFile(tmpFile, buf.Bytes(), 0644); err != nil {
+		return
+	}
+	if err := os.Rename(tmpFile, stateFile); err != nil {
+		return
+	}
 
 	r.appendLogEntries()
 }
@@ -868,7 +884,8 @@ func (r *RaftNode) loadLogEntries(expectedLength int) {
 		if err := dec.Decode(&entry); err != nil {
 			break
 		}
-		r.log = append(r.log, &entry)
+		entryCopy := entry
+		r.log = append(r.log, &entryCopy)
 	}
 }
 
@@ -965,19 +982,26 @@ func (r *RaftNode) AppendEntries(ctx context.Context, args *AppendEntriesArgs) (
 func (r *RaftNode) getClient(peerAddr string) (RaftServiceClient, error) {
 	r.mu.Lock()
 	conn, ok := r.clientConnPool[peerAddr]
-	if !ok {
+	if ok {
 		r.mu.Unlock()
-		var err error
-		conn, err = grpc.Dial(peerAddr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")))
-		if err != nil {
-			return nil, err
-		}
-		r.mu.Lock()
-		r.clientConnPool[peerAddr] = conn
-		r.mu.Unlock()
-	} else {
-		r.mu.Unlock()
+		return NewRaftServiceClient(conn), nil
 	}
+	r.mu.Unlock()
+
+	var err error
+	conn, err = grpc.Dial(peerAddr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")))
+	if err != nil {
+		return nil, err
+	}
+
+	r.mu.Lock()
+	if existing, ok := r.clientConnPool[peerAddr]; ok {
+		r.mu.Unlock()
+		conn.Close()
+		return NewRaftServiceClient(existing), nil
+	}
+	r.clientConnPool[peerAddr] = conn
+	r.mu.Unlock()
 	return NewRaftServiceClient(conn), nil
 }
 
@@ -1049,7 +1073,8 @@ func (r *RaftNode) InstallSnapshot(ctx context.Context, args *InstallSnapshotArg
 		if err := dec.Decode(&entry); err != nil {
 			break
 		}
-		r.log = append(r.log, &entry)
+		entryCopy := entry
+		r.log = append(r.log, &entryCopy)
 	}
 
 	r.lastApplied = args.LastIncludedIndex

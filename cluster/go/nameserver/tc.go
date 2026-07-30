@@ -222,22 +222,26 @@ func (tc *TransactionCoordinator) startTimeoutChecker() {
 }
 
 func (tc *TransactionCoordinator) persistTx(tx *TxState) error {
-	f, err := os.OpenFile(tc.txLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	// Rewrite the entire log to avoid unbounded growth
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+
+	for _, tx := range tc.transactions {
+		if err := enc.Encode(tx); err != nil {
+			return err
+		}
+	}
+
+	f, err := os.OpenFile(tc.txLogFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(tx); err != nil {
+	if _, err := f.Write(buf.Bytes()); err != nil {
 		return err
 	}
-
-	f.Write(buf.Bytes())
-	f.Sync()
-
-	return nil
+	return f.Sync()
 }
 
 func (tc *TransactionCoordinator) loadTxLog() error {

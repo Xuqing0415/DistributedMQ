@@ -53,8 +53,9 @@ public class MQProducer {
                 if (response.isSuccess()) {
                     return;
                 } else if (response.isRedirect()) {
+                    String oldAddr = brokerAddr;
                     brokerAddr = response.getRedirectLeader();
-                    connectionPool.invalidateChannel(brokerAddr);
+                    connectionPool.invalidateChannel(oldAddr);
                     logger.info("Redirected to leader: {}", brokerAddr);
                     continue;
                 } else {
@@ -75,11 +76,11 @@ public class MQProducer {
         final CountDownLatch latch = new CountDownLatch(1);
         final MQDecoder.FetchResponse[] result = new MQDecoder.FetchResponse[1];
 
-        MQResponseHandler handler = responseHandlers.get(channel);
+        MQResponseHandler handler = (MQResponseHandler) channel.pipeline().get(MQResponseHandler.class.getSimpleName());
         if (handler == null) {
             handler = new MQResponseHandler();
             responseHandlers.put(channel, handler);
-            channel.pipeline().addLast(handler);
+            channel.pipeline().addLast(MQResponseHandler.class.getSimpleName(), handler);
 
             channel.closeFuture().addListener(f -> {
                 responseHandlers.remove(channel);
@@ -92,37 +93,33 @@ public class MQProducer {
         System.arraycopy(data, 0, fullData, 1, data.length);
 
         ByteBuf buf = channel.alloc().buffer(12 + topicBytes.length + fullData.length);
-        try {
-            buf.writeByte(MQCommand.MAGIC);
-            buf.writeByte(MQCommand.CMD_PRODUCE);
-            buf.writeShort(topicBytes.length);
-            buf.writeInt(partition);
-            buf.writeInt(fullData.length);
-            buf.writeBytes(topicBytes);
-            buf.writeBytes(fullData);
+        buf.writeByte(MQCommand.MAGIC);
+        buf.writeByte(MQCommand.CMD_PRODUCE);
+        buf.writeShort(topicBytes.length);
+        buf.writeInt(partition);
+        buf.writeInt(fullData.length);
+        buf.writeBytes(topicBytes);
+        buf.writeBytes(fullData);
 
-            handler.setPendingResponse(result, latch);
+        handler.setPendingResponse(result, latch);
 
-            ChannelFuture future = channel.writeAndFlush(buf);
-            future.addListener((ChannelFutureListener) f -> {
-                if (!f.isSuccess()) {
-                    latch.countDown();
-                    logger.warn("Write failed: {}", f.cause().getMessage());
-                }
-            });
-
-            if (!latch.await(5, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Send timeout");
+        ChannelFuture future = channel.writeAndFlush(buf);
+        future.addListener((ChannelFutureListener) f -> {
+            if (!f.isSuccess()) {
+                latch.countDown();
+                logger.warn("Write failed: {}", f.cause().getMessage());
             }
+        });
 
-            if (result[0] == null) {
-                throw new RuntimeException("No response received");
-            }
-
-            return result[0];
-        } finally {
-            buf.release();
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Send timeout");
         }
+
+        if (result[0] == null) {
+            throw new RuntimeException("No response received");
+        }
+
+        return result[0];
     }
 
     private String lookupBroker(String topic, int partition) throws Exception {

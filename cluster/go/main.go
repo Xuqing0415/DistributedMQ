@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(ns.Start())
 
 	case "broker":
-		b := broker.NewBroker(cfg.Addr, cfg.ClientAddr, cfg.NameServer, cfg.DataDir)
+		b := broker.NewBroker(cfg.Addr, cfg.ClientAddr, cfg.HTTPPort, cfg.NameServer, cfg.DataDir)
 		b.SetRetention(cfg.RetentionMs, cfg.RetentionBytes)
 		fmt.Printf("Starting Broker on %s (client: %s)\n", cfg.Addr, cfg.ClientAddr)
 		log.Fatal(b.Start())

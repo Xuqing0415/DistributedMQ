@@ -205,11 +205,11 @@ public class MQConsumer {
         final CountDownLatch latch = new CountDownLatch(1);
         final MQDecoder.FetchResponse[] result = new MQDecoder.FetchResponse[1];
 
-        MQResponseHandler handler = responseHandlers.get(channel);
+        MQResponseHandler handler = (MQResponseHandler) channel.pipeline().get(MQResponseHandler.class.getSimpleName());
         if (handler == null) {
             handler = new MQResponseHandler();
             responseHandlers.put(channel, handler);
-            channel.pipeline().addLast(handler);
+            channel.pipeline().addLast(MQResponseHandler.class.getSimpleName(), handler);
 
             channel.closeFuture().addListener(f -> {
                 responseHandlers.remove(channel);

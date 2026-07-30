@@ -46,6 +46,7 @@ type Broker struct {
 	brokerID         int
 	addr             string
 	clientAddr       string
+	httpPort         int
 	nameserverURL    string
 	topics           map[string]*TopicPartition
 	raftNode         *raft.RaftNode
@@ -73,7 +74,7 @@ type TopicPartition struct {
 	index     *storage.SparseIndex
 }
 
-func NewBroker(addr string, clientAddr string, nameserverURL string, dataDir string) *Broker {
+func NewBroker(addr string, clientAddr string, httpPort int, nameserverURL string, dataDir string) *Broker {
 	applyCh := make(chan *raft.LogEntry, 100)
 	stopCh := make(chan struct{})
 
@@ -92,6 +93,7 @@ func NewBroker(addr string, clientAddr string, nameserverURL string, dataDir str
 	broker := &Broker{
 		addr:             addr,
 		clientAddr:       clientAddr,
+		httpPort:         httpPort,
 		nameserverURL:    nameserverURL,
 		topics:           make(map[string]*TopicPartition),
 		applyCh:          applyCh,
@@ -300,7 +302,10 @@ func (b *Broker) handleTCPAck(conn net.Conn, topic string, partition int32, data
 func (b *Broker) startHTTPServer() {
 	http.HandleFunc("/produce", b.handleProduce)
 	http.HandleFunc("/consume", b.handleConsume)
-	http.ListenAndServe(":0", nil)
+	addr := fmt.Sprintf(":%d", b.httpPort)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		fmt.Printf("HTTP server error on %s: %v\n", addr, err)
+	}
 }
 
 func (b *Broker) Stop() {
@@ -919,7 +924,12 @@ func (b *Broker) handleTCPProduce(conn net.Conn, topic string, partition int32, 
 	}
 
 	if !b.IsPartitionLeader(topic, int(partition)) {
-		b.sendResponse(conn, RespRedirect, leader, 0)
+		// Raft state changed since NameServer check; redirect to actual leader
+		if newLeader, err := b.GetPartitionLeader(topic, int(partition)); err == nil {
+			b.sendResponse(conn, RespRedirect, newLeader, 0)
+		} else {
+			b.sendResponse(conn, RespRedirect, leader, 0)
+		}
 		return
 	}
 
@@ -930,7 +940,7 @@ func (b *Broker) handleTCPProduce(conn net.Conn, topic string, partition int32, 
 		msgData = data[1:]
 	}
 
-	_, commitCh, err := b.raftNode.SubmitCommand(topic, partition, msgData)
+	entryIndex, commitCh, err := b.raftNode.SubmitCommand(topic, partition, msgData)
 	if err != nil {
 		b.sendResponse(conn, RespError, "", 0)
 		return
@@ -950,7 +960,7 @@ func (b *Broker) handleTCPProduce(conn net.Conn, topic string, partition int32, 
 		b.auditLogger.LogProduce(clientIP, topic, int(partition), 0, len(msgData))
 	}
 
-	b.sendResponse(conn, RespSuccess, "", 0)
+	b.sendResponse(conn, RespSuccess, "", int64(entryIndex))
 }
 
 func (b *Broker) handleTCPFetch(conn net.Conn, topic string, partition int32, data []byte) {
